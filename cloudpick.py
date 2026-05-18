@@ -19,6 +19,29 @@ import logging
 import requests
 from datetime import datetime
 
+# ── Проверка дублирующего процесса ───────────────────────────────────────────
+
+def check_already_running():
+    current_pid = os.getpid()
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["pgrep", "-a", "-f", "cloudpick"],
+            capture_output=True, text=True
+        )
+        pids = [
+            line.split()[0]
+            for line in result.stdout.strip().splitlines()
+            if line and int(line.split()[0]) != current_pid
+        ]
+        if pids:
+            print(f"⚠️  cloudpick уже запущен (PID: {', '.join(pids)})")
+            ans = input("   Запустить ещё один? [y/N]: ").strip().lower()
+            if ans != "y":
+                sys.exit(0)
+    except Exception:
+        pass
+
 # ── Настройки по умолчанию ───────────────────────────────────────────────────
 
 DEFAULT_TARGET      = "46.243.142.0/23"
@@ -31,9 +54,9 @@ AUTH_URL  = "https://iam.api.cloud.ru/api/v1/auth/token"
 API_BASE  = "https://console.cloud.ru/u-api/svp/svc/v1"
 
 KNOWN_AZ = {
-    "ru.AZ-1": "7c99a597-8516-494f-a2c7-d7377048681e",
+    "ru.AZ-1": None,
     "ru.AZ-2": "479a4ab3-3ff3-4972-95c5-7610bac5c0bb",
-    "ru.AZ-3": "2c63c482-2532-4bba-8c9b-70ea330507bf",
+    "ru.AZ-3": None,
 }
 
 # ── Логирование ───────────────────────────────────────────────────────────────
@@ -203,6 +226,7 @@ def release_ip(token: str, cfg: dict, fip_id: str):
 # ── Основной цикл ─────────────────────────────────────────────────────────────
 
 def main():
+    check_already_running()
     global log
     log = setup_logging()
 
