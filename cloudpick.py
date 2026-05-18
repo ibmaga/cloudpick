@@ -54,9 +54,9 @@ AUTH_URL  = "https://iam.api.cloud.ru/api/v1/auth/token"
 API_BASE  = "https://console.cloud.ru/u-api/svp/svc/v1"
 
 KNOWN_AZ = {
-    "ru.AZ-1": None,
+    "ru.AZ-1": "7c99a597-8516-494f-a2c7-d7377048681e",
     "ru.AZ-2": "479a4ab3-3ff3-4972-95c5-7610bac5c0bb",
-    "ru.AZ-3": None,
+    "ru.AZ-3": "2c63c482-2532-4bba-8c9b-70ea330507bf",
 }
 
 # ── Логирование ───────────────────────────────────────────────────────────────
