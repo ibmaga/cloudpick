@@ -15,32 +15,62 @@ import sys
 import time
 import random
 import ipaddress
+import logging
 import requests
+from datetime import datetime
 
 # ── Настройки по умолчанию ───────────────────────────────────────────────────
 
-DEFAULT_TARGET  = "46.243.142.0/23"
-DEFAULT_DELAY_MIN = 15
-DEFAULT_DELAY_MAX = 25
+DEFAULT_TARGET      = "46.243.142.0/23"
+DEFAULT_DELAY_MIN   = 15
+DEFAULT_DELAY_MAX   = 25
 DEFAULT_ACTIVE_WAIT = 60
+LOG_FILE            = "/var/log/cloudpick.log"
 
 AUTH_URL  = "https://iam.api.cloud.ru/api/v1/auth/token"
 API_BASE  = "https://console.cloud.ru/u-api/svp/svc/v1"
 
 KNOWN_AZ = {
-    "ru.AZ-1": None,  # заполняется при вводе
+    "ru.AZ-1": "7c99a597-8516-494f-a2c7-d7377048681e",
     "ru.AZ-2": "479a4ab3-3ff3-4972-95c5-7610bac5c0bb",
-    "ru.AZ-3": None,
+    "ru.AZ-3": "2c63c482-2532-4bba-8c9b-70ea330507bf",
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Логирование ───────────────────────────────────────────────────────────────
+
+def setup_logging():
+    logger = logging.getLogger("cloudpick")
+    logger.setLevel(logging.DEBUG)
+    fmt = logging.Formatter("%(asctime)s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    # stdout
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+
+    # файл
+    try:
+        fh = logging.FileHandler(LOG_FILE)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except PermissionError:
+        print(f"⚠️  Нет прав на запись в {LOG_FILE}, логи только в stdout.")
+
+    return logger
+
+log: logging.Logger = None  # инициализируется в main()
+
+def out(msg: str):
+    """Вывод в stdout и лог-файл с датой."""
+    log.info(msg)
+
+# ── Ввод ─────────────────────────────────────────────────────────────────────
 
 def ask(prompt: str, default: str = "") -> str:
     val = input(prompt).strip()
     return val if val else default
 
-def ask_az_ids() -> list[tuple[str, str]]:
-    """Интерактивный ввод AZ ID. Возвращает список (az_name, az_id)."""
+def ask_az_ids() -> list:
     print("\n── Зоны доступности ──────────────────────────────────────")
     print("AZ ID можно найти перехватив POST-запрос при аренде IP в консоли.")
     print("Нажми Enter чтобы пропустить зону.\n")
@@ -61,33 +91,21 @@ def ask_az_ids() -> list[tuple[str, str]]:
     return result
 
 def setup() -> dict:
-    """Интерактивная настройка при первом запуске."""
     print("╔══════════════════════════════════════════╗")
     print("║           cloudpick — cloud.ru           ║")
     print("╚══════════════════════════════════════════╝\n")
 
-    # Credentials
-    key_id = (
-        os.environ.get("CLOUDRU_KEY_ID") or
-        ask("  Key ID (CLOUDRU_KEY_ID): ")
-    )
-    key_secret = (
-        os.environ.get("CLOUDRU_KEY_SECRET") or
-        ask("  Key Secret (CLOUDRU_KEY_SECRET): ")
-    )
+    key_id = os.environ.get("CLOUDRU_KEY_ID") or ask("  Key ID: ")
+    key_secret = os.environ.get("CLOUDRU_KEY_SECRET") or ask("  Key Secret: ")
     if not key_id or not key_secret:
         print("❌ Key ID и Key Secret обязательны.")
         sys.exit(1)
 
-    project_id = (
-        os.environ.get("CLOUDRU_PROJECT_ID") or
-        ask("  Project ID (CLOUDRU_PROJECT_ID): ")
-    )
+    project_id = os.environ.get("CLOUDRU_PROJECT_ID") or ask("  Project ID: ")
     if not project_id:
         print("❌ Project ID обязателен.")
         sys.exit(1)
 
-    # Целевая подсеть
     target_raw = ask(f"\n  Целевая подсеть [{DEFAULT_TARGET}]: ", DEFAULT_TARGET)
     try:
         target = ipaddress.ip_network(target_raw, strict=False)
@@ -95,25 +113,23 @@ def setup() -> dict:
         print(f"❌ Неверная подсеть: {target_raw}")
         sys.exit(1)
 
-    # Зоны
     az_list = ask_az_ids()
 
-    # Параметры
     print("\n── Параметры ─────────────────────────────────────────────")
-    delay_min  = int(ask(f"  Мин. пауза между попытками (сек) [{DEFAULT_DELAY_MIN}]: ", str(DEFAULT_DELAY_MIN)))
-    delay_max  = int(ask(f"  Макс. пауза между попытками (сек) [{DEFAULT_DELAY_MAX}]: ", str(DEFAULT_DELAY_MAX)))
-    max_att    = int(ask("  Макс. попыток [1000]: ", "1000"))
+    delay_min = int(ask(f"  Мин. пауза (сек) [{DEFAULT_DELAY_MIN}]: ", str(DEFAULT_DELAY_MIN)))
+    delay_max = int(ask(f"  Макс. пауза (сек) [{DEFAULT_DELAY_MAX}]: ", str(DEFAULT_DELAY_MAX)))
+    max_att   = int(ask("  Макс. попыток [1000]: ", "1000"))
 
     print()
     return {
-        "key_id":      key_id,
-        "key_secret":  key_secret,
-        "project_id":  project_id,
-        "target":      target,
-        "az_list":     az_list,
-        "delay_min":   delay_min,
-        "delay_max":   delay_max,
-        "max_att":     max_att,
+        "key_id":     key_id,
+        "key_secret": key_secret,
+        "project_id": project_id,
+        "target":     target,
+        "az_list":    az_list,
+        "delay_min":  delay_min,
+        "delay_max":  delay_max,
+        "max_att":    max_att,
     }
 
 # ── API ───────────────────────────────────────────────────────────────────────
@@ -132,7 +148,7 @@ def get_token(cfg: dict) -> str:
 def hdrs(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-def allocate_ip(token: str, cfg: dict, az_id: str, attempt: int) -> tuple[str, str]:
+def allocate_ip(token: str, cfg: dict, az_id: str, attempt: int) -> tuple:
     url  = f"{API_BASE}/floating-ips"
     body = {
         "name":                 f"pick-{attempt:04d}",
@@ -146,15 +162,18 @@ def allocate_ip(token: str, cfg: dict, az_id: str, attempt: int) -> tuple[str, s
     data = resp.json()
     return data["ip_address"], data["id"]
 
-def wait_active(token: str, cfg: dict, fip_id: str, wait: int) -> bool:
+def wait_active(token: str, cfg: dict, fip_id: str) -> bool:
     url    = f"{API_BASE}/floating-ips/{fip_id}"
     params = {"project_id": cfg["project_id"]}
-    for _ in range(wait // 3):
+    states = []
+    for _ in range(DEFAULT_ACTIVE_WAIT // 3):
         try:
             resp = requests.get(url, headers=hdrs(token), params=params, timeout=15)
             if resp.ok:
                 state = resp.json().get("state", "")
-                print(f" [{state}]", end="", flush=True)
+                if not states or states[-1] != state:
+                    states.append(state)
+                    print(f" [{state}]", end="", flush=True)
                 if state in ("active", "available"):
                     return True
                 if state == "error":
@@ -176,19 +195,26 @@ def release_ip(token: str, cfg: dict, fip_id: str):
         except Exception as e:
             if attempt < 4:
                 wait = 10 * (attempt + 1)
-                print(f"   ↻ retry удаления {attempt+1}/5, жду {wait}с: {e}")
+                out(f"   ↻ retry удаления {attempt+1}/5, жду {wait}с: {e}")
                 time.sleep(wait)
             else:
-                print(f"   ⚠️  Не удалось удалить {fip_id[:8]}…: {e}")
+                out(f"   ⚠️  Не удалось удалить {fip_id[:8]}…: {e}")
 
 # ── Основной цикл ─────────────────────────────────────────────────────────────
 
 def main():
+    global log
+    log = setup_logging()
+
     cfg   = setup()
     token = get_token(cfg)
-    print("✅ Токен получен")
-    print(f"🎯 Цель: {cfg['target']}")
-    print(f"🌐 Зоны: {', '.join(n for n, _ in cfg['az_list'])}\n")
+
+    out(f"{'='*55}")
+    out(f"cloudpick запущен")
+    out(f"Цель: {cfg['target']}")
+    out(f"Зоны: {', '.join(n for n, _ in cfg['az_list'])}")
+    out(f"Макс. попыток: {cfg['max_att']}")
+    out(f"{'='*55}")
 
     az_cycle = cfg["az_list"]
     az_idx   = 0
@@ -197,7 +223,7 @@ def main():
     for attempt in range(1, cfg["max_att"] + 1):
         if attempt > 1 and attempt % 10 == 0:
             token = get_token(cfg)
-            print("🔄 Токен обновлён")
+            out("🔄 Токен обновлён")
 
         az_name, az_id = az_cycle[az_idx % len(az_cycle)]
         az_idx += 1
@@ -212,55 +238,56 @@ def main():
             elif keep:
                 status = "⭐ СОХРАНЯЕМ"
             else:
-                status = "❌ Мимо    "
+                status = "❌ Мимо"
 
-            print(f"[{attempt:04d}] {az_name} │ {ip:<18} {fip_id[:8]}… — {status}")
+            out(f"[{attempt:04d}] {az_name} │ {ip:<18} {fip_id[:8]}… — {status}")
 
             if in_tgt:
                 found.append((ip, fip_id, az_name))
-                print(f"\n✅ Нужный IP: {ip}")
-                print(f"   ID: {fip_id}")
-                print(f"   Зона: {az_name}")
-                print(f"   Назначь его на ВМ в консоли cloud.ru.")
+                out(f"✅ Нужный IP: {ip}  ID: {fip_id}  Зона: {az_name}")
                 again = ask("\nИскать ещё? [y/N]: ", "n").lower()
                 if again != "y":
                     break
                 continue
 
             if keep:
-                print(f"   💾 Сохранён (46.x), не удаляем")
+                out(f"   💾 Сохранён (46.x), не удаляем")
                 time.sleep(random.uniform(cfg["delay_min"], cfg["delay_max"]))
                 continue
 
-            print(f"         ожидаем active…", end=" ", flush=True)
-            ok = wait_active(token, cfg, fip_id, cfg["active_wait"] if "active_wait" in cfg else DEFAULT_ACTIVE_WAIT)
-            print(" ok" if ok else " таймаут")
+            print("         ожидаем active…", end=" ", flush=True)
+            ok = wait_active(token, cfg, fip_id)
+            print()
+            log.info("active ok" if ok else "active таймаут")
 
             release_ip(token, cfg, fip_id)
 
         except requests.HTTPError as e:
             code = e.response.status_code
-            print(f"[{attempt:04d}] HTTP {code}: {e.response.text[:150]}")
+            out(f"[{attempt:04d}] HTTP {code}: {e.response.text[:150]}")
             wait = 75 if code == 422 else (45 if code == 429 else random.uniform(cfg["delay_min"], cfg["delay_max"]))
-            print(f"         пауза {wait:.0f}с…")
+            out(f"         пауза {wait:.0f}с…")
             time.sleep(wait)
             continue
 
         except Exception as e:
-            print(f"[{attempt:04d}] Ошибка: {e}")
+            out(f"[{attempt:04d}] Ошибка: {e}")
             time.sleep(random.uniform(cfg["delay_min"], cfg["delay_max"]))
             continue
 
         delay = random.uniform(cfg["delay_min"], cfg["delay_max"])
-        print(f"         пауза {delay:.1f}с…")
+        out(f"         пауза {delay:.1f}с…")
         time.sleep(delay)
 
+    out(f"{'='*55}")
     if found:
-        print(f"\n📋 Найдено IP: {len(found)}")
+        out(f"📋 Найдено IP: {len(found)}")
         for ip, fid, az in found:
-            print(f"   {ip} ({fid}) — {az}")
+            out(f"   {ip} ({fid}) — {az}")
     else:
-        print(f"\n⚠️  Не нашли за {cfg['max_att']} попыток.")
+        out(f"⚠️  Не нашли за {cfg['max_att']} попыток.")
+    out(f"cloudpick завершён")
+    out(f"{'='*55}")
 
 if __name__ == "__main__":
     main()
