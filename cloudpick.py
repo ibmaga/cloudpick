@@ -54,9 +54,9 @@ AUTH_URL  = "https://iam.api.cloud.ru/api/v1/auth/token"
 API_BASE  = "https://console.cloud.ru/u-api/svp/svc/v1"
 
 KNOWN_AZ = {
-    "ru.AZ-1": "7c99a597-8516-494f-a2c7-d7377048681e",
+    "ru.AZ-1": None,
     "ru.AZ-2": "479a4ab3-3ff3-4972-95c5-7610bac5c0bb",
-    "ru.AZ-3": "2c63c482-2532-4bba-8c9b-70ea330507bf",
+    "ru.AZ-3": None,
 }
 
 # ── Логирование ───────────────────────────────────────────────────────────────
@@ -158,15 +158,24 @@ def setup() -> dict:
 # ── API ───────────────────────────────────────────────────────────────────────
 
 def get_token(cfg: dict) -> str:
-    resp = requests.post(AUTH_URL, json={
-        "keyId":  cfg["key_id"],
-        "secret": cfg["key_secret"],
-    }, timeout=15)
-    resp.raise_for_status()
-    token = resp.json().get("access_token")
-    if not token:
-        raise RuntimeError(f"Нет токена: {resp.text}")
-    return token
+    for attempt in range(5):
+        try:
+            resp = requests.post(AUTH_URL, json={
+                "keyId":  cfg["key_id"],
+                "secret": cfg["key_secret"],
+            }, timeout=30)
+            resp.raise_for_status()
+            token = resp.json().get("access_token")
+            if not token:
+                raise RuntimeError(f"Нет токена: {resp.text}")
+            return token
+        except Exception as e:
+            if attempt < 4:
+                wait = 10 * (attempt + 1)
+                print(f"   ↻ retry токена {attempt+1}/5, жду {wait}с: {e}")
+                import time; time.sleep(wait)
+            else:
+                raise
 
 def hdrs(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
