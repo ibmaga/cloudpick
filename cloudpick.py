@@ -212,11 +212,9 @@ def cloudru_release(token: str, cfg: dict, fip_id: str):
 
 def sel_setup() -> dict:
     print("\n── Selectel credentials ──────────────────────────────────")
-    account_id = os.environ.get("SEL_ACCOUNT_ID") or ask("  Account ID (номер аккаунта): ")
-    username   = os.environ.get("SEL_USERNAME")   or ask("  Service user (логин): ")
-    password   = os.environ.get("SEL_PASSWORD")   or ask("  Password: ")
+    token      = os.environ.get("SEL_TOKEN")      or ask("  API Token (Профиль → API ключи): ")
     project_id = os.environ.get("SEL_PROJECT_ID") or ask("  Project ID: ")
-    if not account_id or not username or not password or not project_id:
+    if not token or not project_id:
         print("❌ Все поля обязательны.")
         sys.exit(1)
 
@@ -226,47 +224,17 @@ def sel_setup() -> dict:
     regions = [r.strip() for r in regions_raw.split(",") if r.strip()]
 
     return {
-        "account_id": account_id,
-        "username":   username,
-        "password":   password,
+        "token":      token,
         "project_id": project_id,
         "regions":    regions,
     }
 
 def sel_get_token(cfg: dict) -> str:
-    """Получить Keystone токен для Selectel."""
-    for attempt in range(5):
-        try:
-            resp = requests.post(SEL_AUTH_URL, json={
-                "auth": {
-                    "identity": {
-                        "methods": ["password"],
-                        "password": {
-                            "user": {
-                                "name":     cfg["username"],
-                                "domain":   {"name": cfg["account_id"]},
-                                "password": cfg["password"],
-                            }
-                        }
-                    },
-                    "scope": {"project": {"id": cfg["project_id"]}}
-                }
-            }, timeout=30)
-            resp.raise_for_status()
-            token = resp.headers.get("X-Subject-Token")
-            if not token:
-                raise RuntimeError("Нет X-Subject-Token в ответе")
-            return token
-        except Exception as e:
-            if attempt < 4:
-                w = 10 * (attempt + 1)
-                print(f"   ↻ retry Selectel токена {attempt+1}/5, жду {w}с: {e}")
-                time.sleep(w)
-            else:
-                raise
+    """Статический токен Selectel — возвращаем как есть."""
+    return cfg["token"]
 
 def sel_hdrs(token: str) -> dict:
-    return {"X-Auth-Token": token, "Content-Type": "application/json"}
+    return {"X-Token": token, "Content-Type": "application/json"}
 
 def sel_allocate(token: str, cfg: dict, region: str, attempt: int) -> tuple:
     """Создать floating IP через Selectel Resell API v2."""
