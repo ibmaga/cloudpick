@@ -49,15 +49,15 @@ LOG_FILE            = "/var/log/cloudpick.log"
 CLOUDRU_AUTH_URL = "https://iam.api.cloud.ru/api/v1/auth/token"
 CLOUDRU_API_BASE = "https://console.cloud.ru/u-api/svp/svc/v1"
 CLOUDRU_KNOWN_AZ = {
-    "ru.AZ-1": None,
+    "ru.AZ-1": "7c99a597-8516-494f-a2c7-d7377048681e",
     "ru.AZ-2": "479a4ab3-3ff3-4972-95c5-7610bac5c0bb",
-    "ru.AZ-3": None,
+    "ru.AZ-3": "2c63c482-2532-4bba-8c9b-70ea330507bf",
 }
 
 # Selectel
 SEL_AUTH_URL   = "https://cloud.api.selcloud.ru/identity/v3/auth/tokens"
 SEL_RESELL_URL = "https://api.selectel.ru/vpc/resell/v2"
-SEL_REGIONS    = ["ru-1", "ru-2", "ru-3", "ru-7", "ru-8", "ru-9"]
+SEL_REGIONS    = ["ru-1", "ru-3", "ru-7", "ru-8", "ru-9"]
 
 # Целевые подсети — всё что в белых списках РКН
 TARGET_NETWORKS = {
@@ -78,6 +78,11 @@ TARGET_NETWORKS = {
     "46.8.0.0/16":      "Contell",
 }
 TARGET_NETS = {ipaddress.ip_network(n, strict=False): label for n, label in TARGET_NETWORKS.items()}
+
+# Исключения — эти подсети не сохраняем даже если попали в целевой блок
+EXCLUDE_NETS = [
+    ipaddress.ip_network("46.16.36.0/24", strict=False),
+]
 
 # ── Логирование ───────────────────────────────────────────────────────────────
 
@@ -110,8 +115,10 @@ def ask(prompt: str, default: str = "") -> str:
 
 
 def check_ip(ip: str) -> tuple:
-    """Возвращает (matched_label или None)."""
+    """Возвращает label если IP в целевых подсетях, иначе None. Исключения игнорируются."""
     addr = ipaddress.ip_address(ip)
+    if any(addr in net for net in EXCLUDE_NETS):
+        return None
     for net, label in TARGET_NETS.items():
         if addr in net:
             return label
@@ -225,7 +232,7 @@ def sel_setup() -> dict:
         sys.exit(1)
 
     print("\n── Selectel регионы ──────────────────────────────────────")
-    print("Доступные: ru-1, ru-2, ru-3, ru-7, ru-8, ru-9")
+    print("Доступные: ru-1, ru-3, ru-8, ru-9")
     regions_raw = ask(f"  Регионы через запятую [все]: ", ",".join(SEL_REGIONS))
     regions = [r.strip() for r in regions_raw.split(",") if r.strip()]
 
@@ -342,6 +349,7 @@ def main():
 
     found = []
     task_idx = 0
+    consecutive_429 = 0
 
     for attempt in range(1, max_att + 1):
         # Обновляем токены каждые 10 попыток
@@ -372,6 +380,7 @@ def main():
             else:
                 status = "❌ Мимо"
 
+            consecutive_429 = 0
             out(f"[{attempt:04d}] {label:<20} │ {ip:<18} {fip_id[:8]}… — {status}")
 
             if matched:
@@ -397,7 +406,15 @@ def main():
         except requests.HTTPError as e:
             code = e.response.status_code
             out(f"[{attempt:04d}] HTTP {code}: {e.response.text[:150]}")
-            wait = 75 if code == 422 else (45 if code == 429 else random.uniform(delay_min, delay_max))
+            if code == 429:
+                consecutive_429 += 1
+                wait = min(45 * consecutive_429, 300)  # макс 5 минут
+            elif code in (409, 422):
+                consecutive_429 = 0
+                wait = random.uniform(delay_min, delay_max)
+            else:
+                consecutive_429 = 0
+                wait = random.uniform(delay_min, delay_max)
             out(f"         пауза {wait:.0f}с…")
             time.sleep(wait)
             continue
