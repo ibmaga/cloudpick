@@ -73,7 +73,7 @@ TARGET_NETWORKS = {
     "51.0.0.0/8":       "Yandex Cloud",
     "84.204.0.0/16":    "Yandex Cloud",
     "158.160.0.0/16":   "Yandex Cloud",
-    "79.0.0.0/8":       "Reg Cloud",
+    "79.174.0.0/16":    "Reg Cloud",
     "178.248.0.0/16":   "Curator Pro",
     "46.8.0.0/16":      "Contell",
 }
