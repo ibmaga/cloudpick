@@ -40,7 +40,6 @@ def check_already_running():
 
 # ── Константы ─────────────────────────────────────────────────────────────────
 
-DEFAULT_TARGET      = "46.243.142.0/23"
 DEFAULT_DELAY_MIN   = 15
 DEFAULT_DELAY_MAX   = 25
 DEFAULT_ACTIVE_WAIT = 60
@@ -60,15 +59,25 @@ SEL_AUTH_URL   = "https://cloud.api.selcloud.ru/identity/v3/auth/tokens"
 SEL_RESELL_URL = "https://api.selectel.ru/vpc/resell/v2"
 SEL_REGIONS    = ["ru-1", "ru-2", "ru-3", "ru-7", "ru-8", "ru-9"]
 
-# Белые списки РКН
-WHITELIST_NETWORKS = [
-    "89.208.0.0/16", "217.0.0.0/8", "109.0.0.0/8", "212.233.0.0/16", "213.219.0.0/16",  # VK Cloud
-    "51.0.0.0/8", "84.204.0.0/16", "178.0.0.0/8", "158.160.0.0/16",                      # Yandex Cloud
-    "46.243.0.0/16",                                                                        # Sber Cloud
-    "79.0.0.0/8",                                                                           # Reg Cloud
-    "31.129.42.0/24", "5.188.0.0/16", "185.91.52.0/24",                                   # Selectel
-]
-WHITELIST_NETS = [ipaddress.ip_network(n, strict=False) for n in WHITELIST_NETWORKS]
+# Целевые подсети — всё что в белых списках РКН
+TARGET_NETWORKS = {
+    "46.243.142.0/23":  "Sber Cloud (cloud.ru)",
+    "31.129.42.0/24":   "Selectel",
+    "5.188.0.0/16":     "Selectel",
+    "185.91.52.0/24":   "Selectel",
+    "89.208.0.0/16":    "VK Cloud",
+    "217.0.0.0/8":      "VK Cloud",
+    "109.0.0.0/8":      "VK Cloud",
+    "212.233.0.0/16":   "VK Cloud",
+    "213.219.0.0/16":   "VK Cloud",
+    "51.0.0.0/8":       "Yandex Cloud",
+    "84.204.0.0/16":    "Yandex Cloud",
+    "158.160.0.0/16":   "Yandex Cloud",
+    "79.0.0.0/8":       "Reg Cloud",
+    "178.248.0.0/16":   "Curator Pro",
+    "46.8.0.0/16":      "Contell",
+}
+TARGET_NETS = {ipaddress.ip_network(n, strict=False): label for n, label in TARGET_NETWORKS.items()}
 
 # ── Логирование ───────────────────────────────────────────────────────────────
 
@@ -98,18 +107,15 @@ def ask(prompt: str, default: str = "") -> str:
     val = input(prompt).strip()
     return val if val else default
 
-def whitelist_provider(ip: str) -> str:
-    addr = ipaddress.ip_address(ip)
-    for n in WHITELIST_NETWORKS:
-        if addr in ipaddress.ip_network(n, strict=False):
-            return n
-    return "unknown"
 
-def check_ip(ip: str, target) -> tuple:
+
+def check_ip(ip: str) -> tuple:
+    """Возвращает (matched_label или None)."""
     addr = ipaddress.ip_address(ip)
-    in_tgt = addr in target
-    in_wl  = not in_tgt and any(addr in net for net in WHITELIST_NETS)
-    return in_tgt, in_wl
+    for net, label in TARGET_NETS.items():
+        if addr in net:
+            return label
+    return None
 
 # ── cloud.ru ──────────────────────────────────────────────────────────────────
 
@@ -301,14 +307,8 @@ def main():
 
     providers = setup_providers()
 
-    target_raw = ask(f"\n  Целевая подсеть [{DEFAULT_TARGET}]: ", DEFAULT_TARGET)
-    try:
-        target = ipaddress.ip_network(target_raw, strict=False)
-    except ValueError:
-        print(f"❌ Неверная подсеть: {target_raw}")
-        sys.exit(1)
-
     print("\n── Параметры ─────────────────────────────────────────────")
+    print(f"  Целей: {len(TARGET_NETWORKS)} подсетей из белых списков РКН")
     delay_min = int(ask(f"  Мин. пауза (сек) [{DEFAULT_DELAY_MIN}]: ", str(DEFAULT_DELAY_MIN)))
     delay_max = int(ask(f"  Макс. пауза (сек) [{DEFAULT_DELAY_MAX}]: ", str(DEFAULT_DELAY_MAX)))
     max_att   = int(ask("  Макс. попыток [1000]: ", "1000"))
@@ -334,7 +334,7 @@ def main():
 
     out(f"{'='*55}")
     out(f"cloudpick запущен")
-    out(f"Цель: {target}")
+    out(f"Целей: {len(TARGET_NETWORKS)} подсетей РКН белого списка")
     out(f"Провайдеры: {', '.join(p['provider'] for p in providers)}")
     out(f"Задач в очереди: {len(tasks)}")
     out(f"Макс. попыток: {max_att}")
@@ -365,29 +365,21 @@ def main():
             else:
                 ip, fip_id = sel_allocate(token, p_cfg, zone_name, attempt)
 
-            in_tgt, in_wl = check_ip(ip, target)
+            matched = check_ip(ip)
 
-            if in_tgt:
-                status = "🎉 ПОПАЛИ!"
-            elif in_wl:
-                status = "⭐ СОХРАНЯЕМ"
+            if matched:
+                status = f"🎉 ПОПАЛИ! ({matched})"
             else:
                 status = "❌ Мимо"
 
             out(f"[{attempt:04d}] {label:<20} │ {ip:<18} {fip_id[:8]}… — {status}")
 
-            if in_tgt:
-                found.append((ip, fip_id, label))
-                out(f"✅ Нужный IP: {ip}  ID: {fip_id}  Зона: {label}")
+            if matched:
+                found.append((ip, fip_id, label, matched))
+                out(f"✅ IP найден: {ip}  Провайдер: {matched}  ID: {fip_id}  Зона: {label}")
                 again = ask("\nИскать ещё? [y/N]: ", "n").lower()
                 if again != "y":
                     break
-                continue
-
-            if in_wl:
-                prov = whitelist_provider(ip)
-                out(f"   💾 Сохранён — белый список РКН ({prov}), не удаляем")
-                time.sleep(random.uniform(delay_min, delay_max))
                 continue
 
             # Не тот — удаляем
@@ -422,8 +414,8 @@ def main():
     out(f"{'='*55}")
     if found:
         out(f"📋 Найдено IP: {len(found)}")
-        for ip, fid, zone in found:
-            out(f"   {ip} ({fid}) — {zone}")
+        for ip, fid, zone, prov in found:
+            out(f"   {ip} [{prov}] ({fid}) — {zone}")
     else:
         out(f"⚠️  Не нашли за {max_att} попыток.")
     out("cloudpick завершён")
