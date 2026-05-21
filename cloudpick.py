@@ -57,7 +57,7 @@ CLOUDRU_KNOWN_AZ = {
 # Selectel
 SEL_AUTH_URL   = "https://cloud.api.selcloud.ru/identity/v3/auth/tokens"
 SEL_RESELL_URL = "https://api.selectel.ru/vpc/resell/v2"
-SEL_REGIONS    = ["ru-1", "ru-3", "ru-7", "ru-8", "ru-9"]
+SEL_REGIONS    = ["ru-1", "ru-3", "ru-7", "ru-8", "ru-9", "gis-1", "gis-2"]
 
 # Целевые подсети — всё что в белых списках РКН
 TARGET_NETWORKS = {
