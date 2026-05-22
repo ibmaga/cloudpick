@@ -289,7 +289,9 @@ def lbaas_create(token: str, cfg: dict, az: str, attempt: int) -> str:
         "targetGroups": [{
             "name":           f"Rule-{attempt:04d}",
             "backendGroupId": az_cfg["backend_group_id"],
-            "balancingRules": [{"protocol": "TCP", "lbPort": 443, "bgPort": 443}],
+            "listeners":      [{"port": 8443, "targetPort": 443, "name": f"listener-{attempt:04d}"}],
+            "algorithm":      "ALG_ROUND_ROBIN",
+            "protocol":       "TCP",
         }],
     }, timeout=30)
     resp.raise_for_status()
