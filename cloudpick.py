@@ -302,31 +302,29 @@ def lbaas_create(token: str, cfg: dict, az: str, attempt: int) -> str:
         raise RuntimeError(f"Нет ID балансировщика: {data}")
     return lb_id
 
-def lbaas_wait_active(token: str, cfg: dict, lb_id: str, timeout: int = 180) -> str:
-    url    = f"{CLOUDRU_LB_BASE}/balancers/{lb_id}"
+def lbaas_wait_active(token: str, cfg: dict, lb_name: str, timeout: int = 180) -> tuple:
+    """Ищет LB по имени в списке. Возвращает (lb_id, ip) или ('', '')."""
+    url    = f"{CLOUDRU_LB_BASE}/balancers"
     params = {"projectId": cfg["project_id"]}
-    states = []
-    time.sleep(30)  # ждём пока LB появится в базе
     for _ in range(timeout // 5):
         try:
             resp = requests.get(url, headers=cloudru_hdrs(token), params=params, timeout=15)
-            out(f"   DEBUG GET {resp.url} → {resp.status_code} {resp.text[:300]}")
             if resp.ok:
-                data  = resp.json()
-                state = data.get("status") or data.get("state") or ""
-                if not states or states[-1] != state:
-                    states.append(state)
-                    print(f" [{state}]", end="", flush=True)
-                if state in ("NLB_STATUS_RUNNING", "NLB_STATUS_ACTIVE"):
-                    ip = data.get("externalIpv4") or ""
-                    if ip:
-                        return ip
-                if state in ("NLB_STATUS_ERROR", "NLB_STATUS_FAILED"):
-                    return ""
+                items = resp.json()
+                if isinstance(items, dict):
+                    items = items.get("balancers") or items.get("items") or []
+                for lb in items:
+                    if lb.get("name") == lb_name:
+                        state = lb.get("status") or lb.get("state") or ""
+                        print(f" [{state}]", end="", flush=True)
+                        if state in ("NLB_STATUS_RUNNING", "NLB_STATUS_ACTIVE"):
+                            return lb.get("id", ""), lb.get("externalIpv4", "")
+                        if state in ("NLB_STATUS_ERROR", "NLB_STATUS_FAILED"):
+                            return lb.get("id", ""), ""
         except Exception:
             pass
         time.sleep(5)
-    return ""
+    return "", ""
 
 def lbaas_delete(token: str, cfg: dict, lb_id: str):
     url    = f"{CLOUDRU_LB_BASE}/balancers/{lb_id}"
@@ -491,10 +489,13 @@ def main():
         try:
             # ── Load Balancer ──
             if provider == "cloudru_lb":
+                lb_name = f"pick-lb-{attempt:04d}"
                 print(f"         [{attempt:04d}] LB в {zone_name}…", end=" ", flush=True)
                 lb_id = lbaas_create(token, p_cfg, zone_name, attempt)
                 print(f" ожидаем…", end=" ", flush=True)
-                ip = lbaas_wait_active(token, p_cfg, lb_id)
+                real_id, ip = lbaas_wait_active(token, p_cfg, lb_name)
+                if real_id:
+                    lb_id = real_id
                 print()
 
                 if not ip:
