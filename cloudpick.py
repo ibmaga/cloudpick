@@ -308,6 +308,7 @@ def lbaas_wait_active(token: str, cfg: dict, lb_id: str, timeout: int = 180) -> 
     for _ in range(timeout // 5):
         try:
             resp = requests.get(url, headers=cloudru_hdrs(token), params=params, timeout=15)
+            print(f"\nDEBUG GET status={resp.status_code} body={resp.text[:300]}", flush=True)
             if resp.ok:
                 data  = resp.json()
                 state = data.get("state") or data.get("status") or ""
