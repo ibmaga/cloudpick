@@ -308,33 +308,17 @@ def lbaas_wait_active(token: str, cfg: dict, lb_id: str, timeout: int = 180) -> 
     for _ in range(timeout // 5):
         try:
             resp = requests.get(url, headers=cloudru_hdrs(token), params=params, timeout=15)
-            print(f"\nDEBUG GET status={resp.status_code} body={resp.text[:300]}", flush=True)
             if resp.ok:
                 data  = resp.json()
-                state = data.get("state") or data.get("status") or ""
+                state = data.get("status") or data.get("state") or ""
                 if not states or states[-1] != state:
                     states.append(state)
                     print(f" [{state}]", end="", flush=True)
-                print(f"\nDEBUG LB state={repr(state)} keys={list(data.keys())[:10]}", flush=True)
-                if state.lower() in ("active", "running", "online", "активен"):
-                    # Отладка — печатаем весь ответ чтобы найти поле с IP
-                    print(f"\nDEBUG state={state} keys={list(data.keys())}", flush=True)
-                    ext = data.get("externalAddress") or data.get("publicIp") or {}
-                    if isinstance(ext, dict):
-                        print(f"DEBUG ext={ext}", flush=True)
-                        ip = ext.get("ip") or ext.get("address") or ext.get("ipAddress") or ext.get("floatingIp") or ""
-                    elif isinstance(ext, str):
-                        ip = ext
-                    else:
-                        ip = ""
+                if state in ("NLB_STATUS_RUNNING", "NLB_STATUS_ACTIVE"):
+                    ip = data.get("externalIpv4") or ""
                     if ip:
                         return ip
-                    # Попробуем другие поля напрямую
-                    for key in ("publicIpAddress", "floatingIp", "externalIp", "publicIp"):
-                        val = data.get(key, "")
-                        if val and isinstance(val, str):
-                            return val
-                if state.lower() in ("error", "failed"):
+                if state in ("NLB_STATUS_ERROR", "NLB_STATUS_FAILED"):
                     return ""
         except Exception:
             pass
