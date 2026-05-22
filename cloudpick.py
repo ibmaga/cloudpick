@@ -296,6 +296,7 @@ def lbaas_create(token: str, cfg: dict, az: str, attempt: int) -> str:
     }, timeout=30)
     resp.raise_for_status()
     data = resp.json()
+    out(f"   DEBUG CREATE response: {str(data)[:500]}")
     lb_id = data.get("id") or data.get("balancerId")
     if not lb_id:
         raise RuntimeError(f"Нет ID балансировщика: {data}")
@@ -305,6 +306,7 @@ def lbaas_wait_active(token: str, cfg: dict, lb_id: str, timeout: int = 180) -> 
     url    = f"{CLOUDRU_LB_BASE}/balancers/{lb_id}"
     params = {"projectId": cfg["project_id"]}
     states = []
+    time.sleep(30)  # ждём пока LB появится в базе
     for _ in range(timeout // 5):
         try:
             resp = requests.get(url, headers=cloudru_hdrs(token), params=params, timeout=15)
