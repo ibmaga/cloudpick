@@ -92,10 +92,10 @@ LB_AZ_CONFIG = {
 SEL_RESELL_URL = "https://api.selectel.ru/vpc/resell/v2"
 SEL_REGIONS    = ["ru-1", "ru-3", "ru-7", "ru-8", "ru-9", "gis-1", "gis-2"]
 
-# Целевые подсети
+# Целевые подсети ──────────────────────────────────────────────────────────
 TARGET_NETWORKS = {
-    "46.243.142.0/23":  "Sber Cloud (cloud.ru)",
-    "37.44.196.0/23":   "Sber Cloud LB (cloud.ru)",
+    "46.243.142.0/23":  "cloud.ru",
+    "37.44.196.0/23":   "cloud.ru LB",
     "31.129.42.0/24":   "Selectel",
     "5.188.0.0/16":     "Selectel",
     "185.91.52.0/24":   "Selectel",
@@ -427,7 +427,7 @@ def main():
     providers = setup_providers()
 
     print("\n── Параметры ─────────────────────────────────────────────")
-    print(f"  Целей: {len(TARGET_NETWORKS)} подсетей из белых списков РКН")
+    print(f"  Целей: {len(TARGET_NETWORKS)} подсетей из целевых подсетей")
     delay_min = int(env("DELAY_MIN", f"  Мин. пауза (сек) [{DEFAULT_DELAY_MIN}]: ", str(DEFAULT_DELAY_MIN)))
     delay_max = int(env("DELAY_MAX", f"  Макс. пауза (сек) [{DEFAULT_DELAY_MAX}]: ", str(DEFAULT_DELAY_MAX)))
     max_att   = int(env("MAX_ATTEMPTS", "  Макс. попыток [1000]: ", "1000"))
@@ -461,7 +461,7 @@ def main():
 
     out(f"{'='*55}")
     out(f"cloudpick запущен")
-    out(f"Целей: {len(TARGET_NETWORKS)} подсетей РКН")
+    out(f"Целей: {len(TARGET_NETWORKS)} целевых подсетей")
     out(f"Провайдеры: {', '.join(p['provider'] for p in providers)}")
     out(f"Задач: {len(tasks)} | Макс. попыток: {max_att}")
     out(f"{'='*55}")
