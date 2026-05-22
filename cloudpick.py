@@ -314,7 +314,8 @@ def lbaas_wait_active(token: str, cfg: dict, lb_id: str, timeout: int = 180) -> 
                 if not states or states[-1] != state:
                     states.append(state)
                     print(f" [{state}]", end="", flush=True)
-                if state.lower() in ("active", "running", "online"):
+                print(f"\nDEBUG LB state={repr(state)} keys={list(data.keys())[:10]}", flush=True)
+                if state.lower() in ("active", "running", "online", "активен"):
                     # Отладка — печатаем весь ответ чтобы найти поле с IP
                     print(f"\nDEBUG state={state} keys={list(data.keys())}", flush=True)
                     ext = data.get("externalAddress") or data.get("publicIp") or {}
